@@ -199,17 +199,25 @@ only hands riddle a window, via `QTFB_KEY`, when `qtfb` is true).
 #### reMarkable 2 experimental qtfb build
 
 The reMarkable 2 uses a 32-bit ARM userspace and a 1404x1872 RGB565 qtfb
-framebuffer. Build the windowed flavor with:
+framebuffer. On Linux or macOS, build and install the windowed flavor with:
 
 ```sh
 cd riddle
-rustup target add armv7-unknown-linux-gnueabihf
-./build-rm2-qtfb.sh
-./scripts/make-rm2-qtfb-bundle.sh
-scp -O -r dist/riddle-rm2 root@10.11.99.1:/home/root/xovi/exthome/appload/
+make setup-rm2
+make install-rm2-qtfb RM2_SSH=root@10.11.99.1
 ```
 
-If your linker has a different name, set `RIDDLE_RM2_LINKER`, for example:
+or, equivalently:
+
+```sh
+./scripts/install-rm2-qtfb.sh root@10.11.99.1
+```
+
+The Makefile sets up the Rust target, builds, tests, stages the bundle, and
+copies it to AppLoad. Linux prefers `gcc-arm-linux-gnueabihf`; macOS uses Zig
+via `cargo-zigbuild`. It assumes xovi + AppLoad are already installed on the
+tablet. If your linker has a different name, set `RIDDLE_RM2_LINKER`, for
+example:
 
 ```sh
 RIDDLE_RM2_LINKER=/path/to/arm-remarkable-linux-gnueabihf-gcc ./build-rm2-qtfb.sh
