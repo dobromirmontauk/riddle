@@ -13,9 +13,12 @@ Development guidance for AI agents working in this repository.
 - Paper Pro remains the default target.
 - reMarkable 2 support is experimental and AppLoad/qtfb-only. Do not route rM2 through the takeover/quill path.
 - Read `README-RM2.md` before changing rM2 setup, install, smoke-test, or recovery workflows.
+- Preserve the rM2 AppLoad compatibility guards. `setup-rm2-appload.sh` must not upload an AppLoad build unless the tablet OS matches the supported matrix, and install/smoke paths must run `scripts/check-rm2-appload-compat.sh`.
+- Current supported AppLoad pairings are OS 3.26.x-3.27.x with released AppLoad v0.5.3, and OS 3.28.x with the beta AppLoad artifact built from rm-appload PR #59.
 - From `riddle/`, use:
   - `make setup-rm2`
   - `make setup-appload-rm2 RM2_SSH=root@10.11.99.1`
+  - `make check-appload-rm2 RM2_SSH=root@10.11.99.1`
   - `make test`
   - `make build-rm2-qtfb`
   - `make bundle-rm2-qtfb`

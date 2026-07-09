@@ -3,20 +3,23 @@
 This branch adds experimental reMarkable 2 support for Riddle through
 AppLoad/qtfb. It does not use the Paper Pro takeover/quill backend.
 
-> ⚠️ **Known issue — OS 3.28 breaks AppLoad.** No released AppLoad works on
-> reMarkable OS **3.28+**: AppLoad hooks a main-UI QML node removed by the 3.28
+> ⚠️ **Known issue — OS 3.28 breaks released AppLoad.** No released AppLoad
+> works on reMarkable OS **3.28.x**: AppLoad hooks a main-UI QML node moved by the 3.28
 > UI refactor, so it panics and **crash-loops xochitl** during xovi startup
 > (`Couldn't resolve the hashed identifier ... required by AppLoad hooks in main
 > UI`). This is upstream (rm-appload
-> [#62](https://github.com/asivery/rm-appload/issues/62); the only fix is the
+> [#62](https://github.com/asivery/rm-appload/pull/62); the only fix is the
 > unmerged beta PR [#59](https://github.com/asivery/rm-appload/pull/59)), not a
 > riddle bug. Options: build `appload.so` from PR #59's `3.28` branch (beta),
 > **downgrade to OS 3.27.x** (AppLoad v0.5.3 works there), or wait for a tagged
-> release. `setup-rm2-appload.sh` detects the OS and refuses to auto-start xovi
-> on 3.28+.
+> release. `setup-rm2-appload.sh` detects the OS and refuses to upload the wrong
+> AppLoad build.
 >
-> Supported today: **OS 3.26–3.27** with `rm-xovi-extensions v19-23052026` +
-> AppLoad `v0.5.3` (both pinned in `scripts/setup-rm2-appload.sh`).
+> Supported pairings today:
+> - **OS 3.26.x-3.27.x** with `rm-xovi-extensions v19-23052026` + released
+>   AppLoad `v0.5.3`.
+> - **OS 3.28.x** with `rm-xovi-extensions v19-23052026` + beta AppLoad built
+>   from rm-appload PR #59.
 
 ## Safety Model
 
@@ -118,20 +121,22 @@ Direct script:
 ```
 
 That writes `dist/appload-pr59-3.28-arm32.tar.gz` and uses it automatically on
-OS 3.28+. This is a beta path: PR #59 is unmerged and explicitly breaking for
+OS 3.28.x. This is a beta path: PR #59 is unmerged and explicitly breaking for
 OS <=3.27.
 
-This downloads upstream arm32 release artifacts, installs them under
-`/home/root/xovi`, builds the qt-resource-rebuilder hashtab (required by
-AppLoad; runs the GUI briefly), and writes this rollback script:
+This downloads upstream arm32 artifacts, installs them under `/home/root/xovi`,
+builds the qt-resource-rebuilder hashtab (required by AppLoad; runs the GUI
+briefly), writes `/home/root/xovi/exthome/appload/.riddle-appload-compat`, and
+writes this rollback script:
 
 ```sh
 ssh root@10.11.99.1 '/home/root/riddle-rm2-appload-rollback.sh'
 ```
 
 It does not start xovi — do that from the tablet (see
-[Safety Model](#safety-model)). On OS 3.28+ it also refuses to start xovi even
-if asked (set `RM2_ALLOW_UNSUPPORTED_OS=1` to override, at your own risk).
+[Safety Model](#safety-model)). It refuses unsupported OS/AppLoad pairings
+before uploading anything. `RM2_ALLOW_UNSUPPORTED_APPLOAD=1` exists only for
+deliberate upstream AppLoad testing with SSH recovery ready.
 
 If `/home/root/xovi` already exists, the setup script backs it up and stops.
 To replace it after reviewing the backup message:
@@ -160,6 +165,17 @@ to:
 ```text
 /home/root/xovi/exthome/appload/riddle-rm2/
 ```
+
+Before copying, the install target runs:
+
+```sh
+./scripts/check-rm2-appload-compat.sh root@10.11.99.1
+```
+
+That checker confirms the tablet is a reMarkable 2, reads the current OS, and
+requires the AppLoad setup marker to match the supported matrix. If the tablet
+was upgraded after AppLoad setup, rerun `setup-rm2-appload.sh`; the exact OS
+build is checked because the AppLoad hook targets can move between UI builds.
 
 ## Oracle key (oracle.env)
 
@@ -224,6 +240,7 @@ Direct script:
 
 The smoke test:
 
+- Verifies the tablet model, current OS, and AppLoad compatibility marker.
 - Installs a temporary AppLoad entry named `The Diary Smoke Test`.
 - Asks you to launch it from AppLoad.
 - Checks over SSH that the process is running.

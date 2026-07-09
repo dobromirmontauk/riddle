@@ -12,6 +12,8 @@
 # Environment:
 #   RM2_SSH=root@10.11.99.1
 #   RM2_APPLOAD_DIR=/home/root/xovi/exthome/appload
+#   RM2_ALLOW_STALE_APPLOAD_MARKER=1
+#                          Skip exact OS marker check after manual review.
 #   RM2_SMOKE_KEEP=1       Keep the temp app directory for debugging.
 #   RM2_SMOKE_NONINTERACTIVE=1
 #                          Only run binary checks; skip UI launch/confirmation.
@@ -47,7 +49,7 @@ need_bundle() {
 need_bundle
 
 echo "Checking tablet access..."
-ssh "$RM2_SSH" "test -d '$RM2_APPLOAD_DIR' || { echo 'missing $RM2_APPLOAD_DIR; install xovi/AppLoad first' >&2; exit 1; }"
+RM2_APPLOAD_DIR="$RM2_APPLOAD_DIR" ./scripts/check-rm2-appload-compat.sh "$RM2_SSH"
 
 echo "Installing temporary smoke app $APP_ID..."
 ssh "$RM2_SSH" "rm -rf '$REMOTE_DIR'; mkdir -p '$REMOTE_DIR'"

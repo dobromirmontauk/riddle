@@ -7,10 +7,13 @@
 # Environment:
 #   RM2_SSH=root@10.11.99.1       Tablet SSH target, used when no arg is given.
 #   RM2_APPLOAD_DIR=/home/root/xovi/exthome/appload
+#   RM2_ALLOW_STALE_APPLOAD_MARKER=1
+#                                  Skip exact OS marker check after manual review.
 #   RIDDLE_RM2_LINKER=...         Override the ARM linker.
 #
 # This installs host build dependencies on Debian/Ubuntu when possible. It does
-# not install xovi/AppLoad on the tablet; install those first.
+# not install xovi/AppLoad on the tablet; install those first. It refuses to
+# copy the app unless the tablet has a compatible, marker-recorded AppLoad.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -25,6 +28,7 @@ RM2_SSH="${1:-${RM2_SSH:-root@10.11.99.1}}"
 export RM2_SSH
 export RM2_APPLOAD_DIR="${RM2_APPLOAD_DIR:-/home/root/xovi/exthome/appload}"
 
+./scripts/check-rm2-appload-compat.sh "$RM2_SSH"
 make setup-rm2
 make install-rm2-qtfb RM2_SSH="$RM2_SSH" RM2_APPLOAD_DIR="$RM2_APPLOAD_DIR"
 

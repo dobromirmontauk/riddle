@@ -13,8 +13,10 @@
 #   RM2_ASSUME_YES=1              Skip confirmation prompt.
 #   RM2_FORCE_XOVI_OVERWRITE=1    Replace existing /home/root/xovi after backup.
 #   RM2_ALLOW_UNKNOWN_MODEL=1     Skip the model guard.
+#   RM2_ALLOW_UNSUPPORTED_APPLOAD=1
+#                                  Install an unsupported AppLoad/OS pairing.
 #   RM2_APPLOAD_328_TARBALL=dist/appload-pr59-3.28-arm32.tar.gz
-#                                  Use beta AppLoad build for OS 3.28+.
+#                                  Use beta AppLoad build for OS 3.28.x.
 set -euo pipefail
 
 RM2_SSH="${1:-${RM2_SSH:-root@10.11.99.1}}"
@@ -24,6 +26,7 @@ XOVI_URL="https://github.com/asivery/rm-xovi-extensions/releases/download/${XOVI
 APPLOAD_URL="https://github.com/asivery/rm-appload/releases/download/${APPLOAD_TAG}/appload-arm32.zip"
 APPLOAD_328_TARBALL="${RM2_APPLOAD_328_TARBALL:-dist/appload-pr59-3.28-arm32.tar.gz}"
 APPLOAD_KIND="release"
+APPLOAD_COMPAT=""
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -92,47 +95,78 @@ EOF
 fi
 
 # AppLoad compatibility guard. AppLoad hooks the main-UI QML; that hook target
-# was removed/moved in the reMarkable 3.28 UI refactor, so AppLoad v0.5.3
-# crash-loops xochitl on 3.28+ ("Couldn't resolve the hashed identifier ...
-# required by AppLoad hooks in main UI"). No released AppLoad supports 3.28 yet
-# (see rm-appload issues #59/#62; Vellum pins remarkable-os <3.28). We still let
-# the install proceed (it is harmless until xovi is started), but we refuse to
-# START xovi on an unsupported OS so we never hand the user a bootloop.
+# moved in the reMarkable 3.28 UI refactor, so AppLoad v0.5.3 crash-loops
+# xochitl on 3.28.x ("Couldn't resolve the hashed identifier ... required by
+# AppLoad hooks in main UI"). The PR #59 beta hook is for 3.28.x only and is
+# explicitly not for <=3.27. Refuse bad OS/AppLoad pairings before uploading
+# anything unless the user gives the dangerous override.
 osver="$(remote_sh "grep -oE '[0-9.]+' /usr/share/remarkable/update.conf 2>/dev/null | head -n1 || true")"
 echo "reMarkable OS: ${osver:-unknown}"
 APPLOAD_OS_SUPPORTED=1
 case "$osver" in
-    3.2[0-7].*|3.2[0-7]) ;;                 # 3.20–3.27: AppLoad v0.5.3 works
-    "") APPLOAD_OS_SUPPORTED=0 ;;            # unknown — do not risk auto-start
-    *)
-        # 3.28+ (and anything newer) — unsupported by released AppLoad.
-        APPLOAD_OS_SUPPORTED=0
+    3.2[6-7].*|3.2[6-7])
+        APPLOAD_KIND="release"
+        APPLOAD_COMPAT="os-3.26-3.27-appload-v0.5.3"
+        ;;
+    3.28.*|3.28)
         if [ -f "$APPLOAD_328_TARBALL" ]; then
             APPLOAD_KIND="pr59-3.28"
-            APPLOAD_OS_SUPPORTED=1
+            APPLOAD_COMPAT="os-3.28-appload-pr59"
             cat >&2 <<EOF
 
 WARNING: reMarkable OS $osver is not supported by released AppLoad.
 Using beta AppLoad artifact built from rm-appload PR #59:
   $APPLOAD_328_TARBALL
 
-This is expected to break on OS <=3.27 and is beta quality.
+This AppLoad build is only for OS 3.28.x and is beta quality.
 EOF
         else
+            APPLOAD_OS_SUPPORTED=0
             cat >&2 <<EOF
 
-WARNING: reMarkable OS $osver is NOT supported by any released AppLoad.
-AppLoad v0.5.3 crash-loops xochitl on 3.28+. xovi + the diary bundle will be
-installed, but xovi will NOT be auto-started (that is what crashes). Options:
-  - run ./scripts/build-rm2-appload-pr59.sh and rerun this setup, or
-  - downgrade to OS 3.27.x, or
-  - wait for a tagged AppLoad release that supports your OS.
-Set RM2_ALLOW_UNSUPPORTED_OS=1 to start xovi anyway (may bootloop the UI;
-recover over SSH with the rollback script). See README-RM2.md.
+Refusing to install AppLoad: reMarkable OS $osver needs the beta AppLoad build
+from rm-appload PR #59, but this file was not found:
+  $APPLOAD_328_TARBALL
+
+Run:
+  ./scripts/build-rm2-appload-pr59.sh
+  ./scripts/setup-rm2-appload.sh $RM2_SSH
+
+The released AppLoad $APPLOAD_TAG is known to crash-loop xochitl on OS 3.28.x.
 EOF
         fi
         ;;
+    "") APPLOAD_OS_SUPPORTED=0 ;;            # unknown — do not risk upload
+    *)
+        APPLOAD_OS_SUPPORTED=0
+        cat >&2 <<EOF
+
+Refusing to install AppLoad: reMarkable OS ${osver:-unknown} is not in this
+repo's supported matrix.
+
+Supported pairings:
+  - OS 3.26.x-3.27.x: released AppLoad $APPLOAD_TAG
+  - OS 3.28.x: beta AppLoad from rm-appload PR #59
+
+Do not push an AppLoad build to a different OS without first updating these
+guards and README-RM2.md with a verified compatibility path.
+EOF
+        ;;
 esac
+
+if [ "$APPLOAD_OS_SUPPORTED" != "1" ] && [ "${RM2_ALLOW_UNSUPPORTED_APPLOAD:-0}" != "1" ]; then
+    cat >&2 <<EOF
+
+Install aborted before uploading anything.
+Set RM2_ALLOW_UNSUPPORTED_APPLOAD=1 only if you are deliberately testing an
+unsupported AppLoad/OS pairing and have SSH recovery ready.
+EOF
+    exit 1
+fi
+
+if [ "$APPLOAD_OS_SUPPORTED" != "1" ]; then
+    APPLOAD_COMPAT="unsupported-${osver:-unknown}-${APPLOAD_KIND}"
+fi
 
 confirm
 
@@ -158,7 +192,7 @@ case "$APPLOAD_KIND" in
 esac
 
 echo "Installing xovi + AppLoad..."
-remote_sh "RM2_FORCE_XOVI_OVERWRITE='${RM2_FORCE_XOVI_OVERWRITE:-0}' APPLOAD_KIND='$APPLOAD_KIND' bash -s" <<'REMOTE'
+remote_sh "RM2_FORCE_XOVI_OVERWRITE='${RM2_FORCE_XOVI_OVERWRITE:-0}' APPLOAD_KIND='$APPLOAD_KIND' APPLOAD_TAG='$APPLOAD_TAG' XOVI_TAG='$XOVI_TAG' APPLOAD_OS_VERSION='$osver' APPLOAD_COMPAT='$APPLOAD_COMPAT' bash -s" <<'REMOTE'
 set -euo pipefail
 
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -201,6 +235,14 @@ fi
 if [ -d appload-arm32-unz/exthome ]; then
     cp -rf appload-arm32-unz/exthome/. /home/root/xovi/exthome/
 fi
+cat >/home/root/xovi/exthome/appload/.riddle-appload-compat <<EOF
+RM2_OS_VERSION='$APPLOAD_OS_VERSION'
+APPLOAD_KIND='$APPLOAD_KIND'
+APPLOAD_TAG='$APPLOAD_TAG'
+APPLOAD_COMPAT='$APPLOAD_COMPAT'
+XOVI_TAG='$XOVI_TAG'
+INSTALLED_AT='$STAMP'
+EOF
 rm -rf /tmp/appload-arm32-unz /tmp/appload-arm32.zip /tmp/appload-arm32.tar.gz /tmp/xovi-arm32.tar.gz
 
 cat >/home/root/riddle-rm2-appload-rollback.sh <<EOF
@@ -244,6 +286,10 @@ REMOTE
 cat <<EOF
 Experimental rM2 AppLoad setup complete (xovi + AppLoad installed, hashtab built).
 
+Recorded AppLoad compatibility marker:
+  OS:       ${osver:-unknown}
+  AppLoad:  $APPLOAD_COMPAT
+
 xovi is NOT running yet, and it CANNOT be started reliably over SSH (each SSH
 session gets a private mount namespace, so xovi/start's systemd drop-in never
 reaches PID 1). Start it from the tablet instead:
@@ -252,12 +298,12 @@ reaches PID 1). Start it from the tablet instead:
   - AppLoad apps live in /home/root/xovi/exthome/appload/ (the diary is
     riddle-rm2/). After xovi is up: open AppLoad, tap Reload, launch The Diary.
 EOF
-if [ "${APPLOAD_OS_SUPPORTED:-1}" != "1" ] && [ "${RM2_ALLOW_UNSUPPORTED_OS:-0}" != "1" ]; then
+if [ "${APPLOAD_OS_SUPPORTED:-1}" != "1" ]; then
 cat <<EOF
 
-!! Your OS ($osver) has no released AppLoad support — starting xovi will very
-   likely crash-loop xochitl. Do not start xovi until you have a 3.28-capable
-   AppLoad (build from rm-appload PR #59) or you downgrade the OS.
+!! This was installed with RM2_ALLOW_UNSUPPORTED_APPLOAD=1. Do not start xovi
+   unless you are deliberately testing this unsupported AppLoad/OS pairing and
+   have SSH recovery ready.
 EOF
 fi
 cat <<EOF

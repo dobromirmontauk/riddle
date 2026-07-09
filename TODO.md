@@ -4,9 +4,9 @@ Status of the experimental rM2 path. See [README-RM2.md](README-RM2.md) for the
 full flow and details. Background: a full install session got riddle built,
 pushed, and xovi installed on an rM2, but hit a hard upstream blocker (below).
 
-## 🚧 Blocker: AppLoad does not support reMarkable OS 3.28
+## 🚧 Blocker: released AppLoad does not support reMarkable OS 3.28
 
-No released AppLoad works on OS **3.28+**. AppLoad hooks a main-UI QML node that
+No released AppLoad works on OS **3.28.x**. AppLoad hooks a main-UI QML node that
 the 3.28 UI refactor removed, so it panics and **crash-loops xochitl** during
 xovi startup:
 
@@ -20,8 +20,9 @@ This is upstream, not a riddle bug:
 - rm-appload #59 — the only 3.28 fix, an **unmerged beta** PR: https://github.com/asivery/rm-appload/pull/59
 - Vellum pins AppLoad to `remarkable-os >=3.26 <3.28`.
 
-The test device is on **3.28.0.157**, so The Diary cannot launch there yet,
-regardless of our bundle.
+The test device is on **3.28.0.157**. The branch now has a reproducible beta
+AppLoad build path from rm-appload PR #59, but it still needs real-hardware
+verification on this exact tablet/OS before treating the 3.28 path as working.
 
 ### Options (pick one) — [ ] not yet done
 
@@ -101,8 +102,9 @@ ssh root@10.11.99.1 'rm -rf /etc/systemd/system/xochitl.service.d/00-xovi.conf; 
   (qtfb launch wrapper) and pointed the manifest at it. Verified the wrapper
   ships in `dist/riddle-rm2/`.
 - `setup-rm2-appload.sh` now builds the qt-resource-rebuilder **hashtab**
-  (previously missing — AppLoad needs it) and refuses to auto-start xovi on
-  unsupported OS.
+  (previously missing — AppLoad needs it), refuses unsupported AppLoad/OS
+  pairings before upload, and writes a compatibility marker checked by
+  install/smoke scripts.
 - Documented the SSH mount-namespace gotcha (xovi must be started from the
   tablet, not over SSH) and the OS 3.28 break in `README-RM2.md`.
 - Verified the oracle path works on-device (`riddle --oracle-test`): reaches the
