@@ -223,6 +223,17 @@ example:
 RIDDLE_RM2_LINKER=/path/to/arm-remarkable-linux-gnueabihf-gcc ./build-rm2-qtfb.sh
 ```
 
+To run a reversible hardware smoke test against a tablet with SSH access:
+
+```sh
+make smoke-rm2-hardware RM2_SSH=root@10.11.99.1
+```
+
+The smoke test installs a temporary AppLoad app directory, asks you to launch
+`The Diary Smoke Test` from AppLoad, checks that the process is running, asks
+you to write a short phrase with the pen, and removes the temporary directory
+automatically after you confirm the UI behavior.
+
 This is AppLoad/qtfb only. The takeover backend remains Paper Pro-specific.
 
 ### Takeover (instant ink) — the one from the demo
