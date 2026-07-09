@@ -223,6 +223,19 @@ example:
 RIDDLE_RM2_LINKER=/path/to/arm-remarkable-linux-gnueabihf-gcc ./build-rm2-qtfb.sh
 ```
 
+If SSH works but xovi/AppLoad is not installed on your reMarkable 2, there is
+an experimental arm32 setup helper:
+
+```sh
+make setup-appload-rm2 RM2_SSH=root@10.11.99.1
+```
+
+It installs upstream arm32 xovi + AppLoad release artifacts under
+`/home/root/xovi`, starts xovi once, and writes a rollback script to
+`/home/root/riddle-rm2-appload-rollback.sh`. It does not enable boot
+persistence; after a reboot, start xovi manually with
+`ssh root@10.11.99.1 '/home/root/xovi/start'`.
+
 To run a reversible hardware smoke test against a tablet with SSH access:
 
 ```sh

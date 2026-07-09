@@ -8,11 +8,12 @@ UNAME_S := $(shell uname -s)
 HAS_ARM_GCC := $(shell command -v arm-linux-gnueabihf-gcc >/dev/null 2>&1 && echo yes || true)
 HAS_ZIGBUILD := $(shell command -v cargo-zigbuild >/dev/null 2>&1 && echo yes || true)
 
-.PHONY: help setup-rm2 test build-rm2-qtfb bundle-rm2-qtfb install-rm2-qtfb smoke-rm2-hardware clean
+.PHONY: help setup-rm2 setup-appload-rm2 test build-rm2-qtfb bundle-rm2-qtfb install-rm2-qtfb smoke-rm2-hardware clean
 
 help:
 	@echo "Targets:"
 	@echo "  make setup-rm2                         Install Rust target and host build helpers"
+	@echo "  make setup-appload-rm2 RM2_SSH=root@10.11.99.1"
 	@echo "  make test                              Run native tests"
 	@echo "  make build-rm2-qtfb                    Cross-build riddle for reMarkable 2"
 	@echo "  make bundle-rm2-qtfb                   Stage dist/riddle-rm2"
@@ -53,6 +54,9 @@ else
 		fi; \
 	fi
 endif
+
+setup-appload-rm2:
+	./scripts/setup-rm2-appload.sh "$(RM2_SSH)"
 
 test:
 	cargo test
