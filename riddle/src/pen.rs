@@ -27,6 +27,8 @@ const BTN_TOOL_RUBBER: u16 = 321;
 const BTN_TOUCH: u16 = 330;
 
 const EVIOCGRAB: libc::c_ulong = 0x40044590;
+const INPUT_EVENT_SIZE: usize = if cfg!(target_pointer_width = "64") { 24 } else { 16 };
+const INPUT_EVENT_VALUE_OFFSET: usize = if cfg!(target_pointer_width = "64") { 16 } else { 8 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
@@ -89,17 +91,17 @@ impl PenDevice {
     /// that changed state.
     pub fn drain(&mut self) -> Vec<PenSample> {
         let mut out = Vec::new();
-        // input_event on 64-bit: struct timeval (16) + type u16 + code u16 + value i32.
-        let mut buf = [0u8; 24 * 64];
+        let mut buf = [0u8; INPUT_EVENT_SIZE * 64];
         loop {
             let n = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
             if n <= 0 {
                 break;
             }
-            for chunk in buf[..n as usize].chunks_exact(24) {
-                let etype = u16::from_le_bytes(chunk[16..18].try_into().unwrap());
-                let code = u16::from_le_bytes(chunk[18..20].try_into().unwrap());
-                let value = i32::from_le_bytes(chunk[20..24].try_into().unwrap());
+            for chunk in buf[..n as usize].chunks_exact(INPUT_EVENT_SIZE) {
+                let off = INPUT_EVENT_VALUE_OFFSET;
+                let etype = u16::from_le_bytes(chunk[off..off + 2].try_into().unwrap());
+                let code = u16::from_le_bytes(chunk[off + 2..off + 4].try_into().unwrap());
+                let value = i32::from_le_bytes(chunk[off + 4..off + 8].try_into().unwrap());
                 match (etype, code) {
                     (EV_ABS, ABS_X) => {
                         self.raw_x = value;

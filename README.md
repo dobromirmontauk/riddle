@@ -196,6 +196,27 @@ Install the binary to `/home/root/xovi/exthome/appload/riddle/` with an
 at the binary itself (the manifest in this repo is the takeover one — AppLoad
 only hands riddle a window, via `QTFB_KEY`, when `qtfb` is true).
 
+#### reMarkable 2 experimental qtfb build
+
+The reMarkable 2 uses a 32-bit ARM userspace and a 1404x1872 RGB565 qtfb
+framebuffer. Build the windowed flavor with:
+
+```sh
+cd riddle
+rustup target add armv7-unknown-linux-gnueabihf
+./build-rm2-qtfb.sh
+./scripts/make-rm2-qtfb-bundle.sh
+scp -O -r dist/riddle-rm2 root@10.11.99.1:/home/root/xovi/exthome/appload/
+```
+
+If your linker has a different name, set `RIDDLE_RM2_LINKER`, for example:
+
+```sh
+RIDDLE_RM2_LINKER=/path/to/arm-remarkable-linux-gnueabihf-gcc ./build-rm2-qtfb.sh
+```
+
+This is AppLoad/qtfb only. The takeover backend remains Paper Pro-specific.
+
 ### Takeover (instant ink) — the one from the demo
 
 Requires the reMarkable SDK toolchain (`~/rm-sdk-3.26`) because the linked

@@ -2,7 +2,7 @@
 //!
 //! Wire format (verified against rm-appload src/qtfb/common.h):
 //!   ClientMessage  = 24 bytes, type:u8 @0, payload @4
-//!   ServerMessage  = 32 bytes, type:u8 @0, payload @8
+//!   ServerMessage  = type:u8 @0, payload @4 on 32-bit / @8 on 64-bit
 
 use std::io;
 use std::os::fd::RawFd;
@@ -19,7 +19,14 @@ pub const MESSAGE_REQUEST_FULL_REFRESH: u8 = 6;
 pub const UPDATE_ALL: i32 = 0;
 pub const UPDATE_PARTIAL: i32 = 1;
 
+/// FBFMT_RM2FB: native 1404x1872, RGB565.
+#[cfg(feature = "rm2")]
+pub const QTFB_FORMAT: u8 = 0;
+/// FBFMT_RMPP_RGB565: native 1620x2160, RGB565.
+#[cfg(not(feature = "rm2"))]
+pub const QTFB_FORMAT: u8 = 3;
 /// FBFMT_RMPP_RGB565: native 1620x2160, 2 bytes/pixel, stride = 3240.
+#[allow(dead_code)]
 pub const FBFMT_RMPP_RGB565: u8 = 3;
 
 #[allow(dead_code)]
@@ -107,8 +114,7 @@ impl QtfbClient {
                 "qtfb server rejected init (no reply)",
             ));
         }
-        let shm_key = i32::from_le_bytes(reply[8..12].try_into().unwrap());
-        let shm_size = u64::from_le_bytes(reply[16..24].try_into().unwrap()) as usize;
+        let (shm_key, shm_size) = parse_init_reply(&reply, n as usize, target_pointer_width())?;
 
         let shm_path = format!("/dev/shm/qtfb_{}\0", shm_key);
         let shm_fd = unsafe { libc::open(shm_path.as_ptr() as *const libc::c_char, libc::O_RDWR) };
@@ -232,14 +238,10 @@ impl QtfbClient {
                 }
                 return Err(e);
             }
-            if buf[0] == MESSAGE_USERINPUT && n >= 28 {
-                out.push(InputEvent {
-                    input_type: i32::from_le_bytes(buf[8..12].try_into().unwrap()),
-                    dev_id: i32::from_le_bytes(buf[12..16].try_into().unwrap()),
-                    x: i32::from_le_bytes(buf[16..20].try_into().unwrap()),
-                    y: i32::from_le_bytes(buf[20..24].try_into().unwrap()),
-                    d: i32::from_le_bytes(buf[24..28].try_into().unwrap()),
-                });
+            if buf[0] == MESSAGE_USERINPUT {
+                if let Some(ev) = parse_user_input(&buf, n as usize, target_pointer_width()) {
+                    out.push(ev);
+                }
             }
         }
     }
@@ -275,5 +277,100 @@ fn send_all(fd: RawFd, buf: &[u8]) -> io::Result<()> {
             return Err(e);
         }
         return Err(io::Error::new(io::ErrorKind::WriteZero, "short send"));
+    }
+}
+
+fn target_pointer_width() -> usize {
+    if cfg!(target_pointer_width = "64") {
+        64
+    } else {
+        32
+    }
+}
+
+fn parse_init_reply(reply: &[u8; 32], n: usize, pointer_width: usize) -> io::Result<(i32, usize)> {
+    if pointer_width == 64 {
+        if n < 24 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "short qtfb init reply"));
+        }
+        let key = i32::from_le_bytes(reply[8..12].try_into().unwrap());
+        let size = u64::from_le_bytes(reply[16..24].try_into().unwrap()) as usize;
+        Ok((key, size))
+    } else {
+        if n < 12 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "short qtfb init reply"));
+        }
+        let key = i32::from_le_bytes(reply[4..8].try_into().unwrap());
+        let size = u32::from_le_bytes(reply[8..12].try_into().unwrap()) as usize;
+        Ok((key, size))
+    }
+}
+
+fn parse_user_input(buf: &[u8; 32], n: usize, pointer_width: usize) -> Option<InputEvent> {
+    let base = if pointer_width == 64 { 8 } else { 4 };
+    if n < base + 20 {
+        return None;
+    }
+    Some(InputEvent {
+        input_type: i32::from_le_bytes(buf[base..base + 4].try_into().unwrap()),
+        dev_id: i32::from_le_bytes(buf[base + 4..base + 8].try_into().unwrap()),
+        x: i32::from_le_bytes(buf[base + 8..base + 12].try_into().unwrap()),
+        y: i32::from_le_bytes(buf[base + 12..base + 16].try_into().unwrap()),
+        d: i32::from_le_bytes(buf[base + 16..base + 20].try_into().unwrap()),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_init_reply_from_64_bit_appload() {
+        let mut msg = [0u8; 32];
+        msg[8..12].copy_from_slice(&1234i32.to_le_bytes());
+        msg[16..24].copy_from_slice(&4096u64.to_le_bytes());
+
+        assert_eq!(parse_init_reply(&msg, 24, 64).unwrap(), (1234, 4096));
+    }
+
+    #[test]
+    fn parses_init_reply_from_32_bit_appload() {
+        let mut msg = [0u8; 32];
+        msg[4..8].copy_from_slice(&1234i32.to_le_bytes());
+        msg[8..12].copy_from_slice(&4096u32.to_le_bytes());
+
+        assert_eq!(parse_init_reply(&msg, 12, 32).unwrap(), (1234, 4096));
+    }
+
+    #[test]
+    fn parses_user_input_from_64_bit_appload() {
+        let mut msg = [0u8; 32];
+        msg[0] = MESSAGE_USERINPUT;
+        for (i, v) in [INPUT_PEN_PRESS, 7, 100, 200, 80].into_iter().enumerate() {
+            let start = 8 + i * 4;
+            msg[start..start + 4].copy_from_slice(&v.to_le_bytes());
+        }
+
+        let ev = parse_user_input(&msg, 28, 64).unwrap();
+        assert_eq!(
+            (ev.input_type, ev.dev_id, ev.x, ev.y, ev.d),
+            (INPUT_PEN_PRESS, 7, 100, 200, 80)
+        );
+    }
+
+    #[test]
+    fn parses_user_input_from_32_bit_appload() {
+        let mut msg = [0u8; 32];
+        msg[0] = MESSAGE_USERINPUT;
+        for (i, v) in [INPUT_PEN_PRESS, 7, 100, 200, 80].into_iter().enumerate() {
+            let start = 4 + i * 4;
+            msg[start..start + 4].copy_from_slice(&v.to_le_bytes());
+        }
+
+        let ev = parse_user_input(&msg, 24, 32).unwrap();
+        assert_eq!(
+            (ev.input_type, ev.dev_id, ev.x, ev.y, ev.d),
+            (INPUT_PEN_PRESS, 7, 100, 200, 80)
+        );
     }
 }

@@ -8,6 +8,8 @@ const ABS_MT_SLOT: u16 = 47;
 const ABS_MT_TRACKING_ID: u16 = 57;
 const EVIOCGRAB: libc::c_ulong = 0x40044590;
 const MAX_SLOTS: usize = 16;
+const INPUT_EVENT_SIZE: usize = if cfg!(target_pointer_width = "64") { 24 } else { 16 };
+const INPUT_EVENT_VALUE_OFFSET: usize = if cfg!(target_pointer_width = "64") { 16 } else { 8 };
 
 pub struct TouchDevice {
     fd: RawFd,
@@ -37,16 +39,17 @@ impl TouchDevice {
     /// Returns true if a 5-finger touch was seen.
     pub fn drain_check_quit(&mut self) -> bool {
         let mut quit = false;
-        let mut buf = [0u8; 24 * 64];
+        let mut buf = [0u8; INPUT_EVENT_SIZE * 64];
         loop {
             let n = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
             if n <= 0 {
                 break;
             }
-            for chunk in buf[..n as usize].chunks_exact(24) {
-                let etype = u16::from_le_bytes(chunk[16..18].try_into().unwrap());
-                let code = u16::from_le_bytes(chunk[18..20].try_into().unwrap());
-                let value = i32::from_le_bytes(chunk[20..24].try_into().unwrap());
+            for chunk in buf[..n as usize].chunks_exact(INPUT_EVENT_SIZE) {
+                let off = INPUT_EVENT_VALUE_OFFSET;
+                let etype = u16::from_le_bytes(chunk[off..off + 2].try_into().unwrap());
+                let code = u16::from_le_bytes(chunk[off + 2..off + 4].try_into().unwrap());
+                let value = i32::from_le_bytes(chunk[off + 4..off + 8].try_into().unwrap());
                 if etype == EV_ABS && code == ABS_MT_SLOT {
                     self.cur = (value.max(0) as usize).min(MAX_SLOTS - 1);
                 } else if etype == EV_ABS && code == ABS_MT_TRACKING_ID {

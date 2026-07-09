@@ -17,6 +17,9 @@ ureq = { version = "2.10", default-features = false, features = ["tls"] }
 [features]
 # Link libquill.so (vendor e-ink engine C ABI) for full-takeover mode.
 takeover = []
+# Build the qtfb/windowed flavor for reMarkable 2 geometry and AppLoad's
+# 32-bit RM2 framebuffer mode.
+rm2 = []
 
 [profile.release]
 strip = true
