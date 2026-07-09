@@ -87,6 +87,36 @@ EOF
     esac
 fi
 
+# AppLoad compatibility guard. AppLoad hooks the main-UI QML; that hook target
+# was removed/moved in the reMarkable 3.28 UI refactor, so AppLoad v0.5.3
+# crash-loops xochitl on 3.28+ ("Couldn't resolve the hashed identifier ...
+# required by AppLoad hooks in main UI"). No released AppLoad supports 3.28 yet
+# (see rm-appload issues #59/#62; Vellum pins remarkable-os <3.28). We still let
+# the install proceed (it is harmless until xovi is started), but we refuse to
+# START xovi on an unsupported OS so we never hand the user a bootloop.
+osver="$(remote_sh "grep -oE '[0-9.]+' /usr/share/remarkable/update.conf 2>/dev/null | head -n1 || true")"
+echo "reMarkable OS: ${osver:-unknown}"
+APPLOAD_OS_SUPPORTED=1
+case "$osver" in
+    3.2[0-7].*|3.2[0-7]) ;;                 # 3.20–3.27: AppLoad v0.5.3 works
+    "") APPLOAD_OS_SUPPORTED=0 ;;            # unknown — do not risk auto-start
+    *)
+        # 3.28+ (and anything newer) — unsupported by released AppLoad.
+        APPLOAD_OS_SUPPORTED=0
+        cat >&2 <<EOF
+
+WARNING: reMarkable OS $osver is NOT supported by any released AppLoad.
+AppLoad v0.5.3 crash-loops xochitl on 3.28+. xovi + the diary bundle will be
+installed, but xovi will NOT be auto-started (that is what crashes). Options:
+  - build appload.so from the 3.28 branch (rm-appload PR #59, beta), or
+  - downgrade to OS 3.27.x, or
+  - wait for a tagged AppLoad release that supports your OS.
+Set RM2_ALLOW_UNSUPPORTED_OS=1 to start xovi anyway (may bootloop the UI;
+recover over SSH with the rollback script). See README-RM2.md.
+EOF
+        ;;
+esac
+
 confirm
 
 fetch "$XOVI_URL" "$WORK/xovi-arm32.tar.gz"
@@ -152,27 +182,48 @@ systemctl restart xochitl 2>/dev/null || true
 EOF
 chmod +x /home/root/riddle-rm2-appload-rollback.sh
 
-echo "Starting xovi once..."
-if [ -x /home/root/xovi/start ]; then
-    systemd-run --unit=xovi-rm2-firststart --collect --service-type=oneshot /home/root/xovi/start 2>/dev/null \
-        || /home/root/xovi/start
+echo "Building qt-resource-rebuilder hashtab (required by AppLoad; runs the GUI briefly)..."
+# AppLoad hooks the main UI via qt-resource-rebuilder, which needs a hashtab
+# built for THIS exact OS build. Safe on any OS: rebuild_hashtable preloads
+# only qt-resource-rebuilder (not AppLoad), so it cannot hit the 3.28 AppLoad
+# crash. It stops xochitl and does not restart it, so we start it again after.
+if [ -x /home/root/xovi/rebuild_hashtable ]; then
+    echo "" | /home/root/xovi/rebuild_hashtable \
+        || echo "hashtab build failed; AppLoad will not load until it succeeds" >&2
+    systemctl start xochitl 2>/dev/null || true
 else
-    echo "/home/root/xovi/start is missing" >&2
-    exit 1
+    echo "/home/root/xovi/rebuild_hashtable missing; skipping" >&2
 fi
+
+# We intentionally do NOT start xovi here. Over SSH each session gets a private
+# mount namespace, so xovi/start's tmpfs systemd drop-in never reaches PID 1 and
+# the LD_PRELOAD is silently dropped. xovi must be started from the tablet's own
+# context (e.g. xovi-tripletap). See README-RM2.md.
 
 echo "installed"
 REMOTE
 
 cat <<EOF
-Experimental rM2 AppLoad setup complete.
+Experimental rM2 AppLoad setup complete (xovi + AppLoad installed, hashtab built).
 
-Next:
-  - AppLoad should now appear on the tablet.
-  - AppLoad apps live in /home/root/xovi/exthome/appload/.
-  - After reboot, start xovi manually with:
-      ssh $RM2_SSH '/home/root/xovi/start'
+xovi is NOT running yet, and it CANNOT be started reliably over SSH (each SSH
+session gets a private mount namespace, so xovi/start's systemd drop-in never
+reaches PID 1). Start it from the tablet instead:
+  - Recommended: install xovi-tripletap and triple-press the power button.
+    https://github.com/rmitchellscott/xovi-tripletap
+  - AppLoad apps live in /home/root/xovi/exthome/appload/ (the diary is
+    riddle-rm2/). After xovi is up: open AppLoad, tap Reload, launch The Diary.
+EOF
+if [ "${APPLOAD_OS_SUPPORTED:-1}" != "1" ] && [ "${RM2_ALLOW_UNSUPPORTED_OS:-0}" != "1" ]; then
+cat <<EOF
 
-Rollback:
+!! Your OS ($osver) has no released AppLoad support — starting xovi will very
+   likely crash-loop xochitl. Do not start xovi until you have a 3.28-capable
+   AppLoad (build from rm-appload PR #59) or you downgrade the OS.
+EOF
+fi
+cat <<EOF
+
+Reboot returns the tablet to clean stock (xovi is not persisted). Rollback:
   ssh $RM2_SSH '/home/root/riddle-rm2-appload-rollback.sh'
 EOF

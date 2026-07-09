@@ -9,6 +9,7 @@ BIN=target/armv7-unknown-linux-gnueabihf/release/riddle
 rm -rf dist/riddle-rm2
 mkdir -p dist/riddle-rm2
 install -m 755 "$BIN" dist/riddle-rm2/riddle
+install -m 755 scripts/appload-launch-rm2.sh dist/riddle-rm2/appload-launch-rm2.sh
 install -m 644 external.rm2-qtfb.manifest.json dist/riddle-rm2/external.manifest.json
 install -m 644 icon.png oracle.env.example settings.schema.json dist/riddle-rm2/
 
