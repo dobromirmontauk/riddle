@@ -12,12 +12,15 @@ Development guidance for AI agents working in this repository.
 
 - Paper Pro remains the default target.
 - reMarkable 2 support is experimental and AppLoad/qtfb-only. Do not route rM2 through the takeover/quill path.
+- Read `README-RM2.md` before changing rM2 setup, install, smoke-test, or recovery workflows.
 - From `riddle/`, use:
   - `make setup-rm2`
+  - `make setup-appload-rm2 RM2_SSH=root@10.11.99.1`
   - `make test`
   - `make build-rm2-qtfb`
   - `make bundle-rm2-qtfb`
   - `make install-rm2-qtfb RM2_SSH=root@10.11.99.1`
+  - `make smoke-rm2-hardware RM2_SSH=root@10.11.99.1`
 - On Linux, the rM2 cross-build prefers `arm-linux-gnueabihf-gcc`.
 - On macOS, the rM2 cross-build uses Zig via `cargo-zigbuild`.
 
