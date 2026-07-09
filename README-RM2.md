@@ -102,6 +102,25 @@ Direct script:
 ./scripts/setup-rm2-appload.sh root@10.11.99.1
 ```
 
+For OS 3.28, first build the beta AppLoad artifact from upstream PR #59:
+
+```sh
+cd riddle
+make build-appload-pr59-rm2
+make setup-appload-rm2 RM2_SSH=root@10.11.99.1
+```
+
+Direct script:
+
+```sh
+./scripts/build-rm2-appload-pr59.sh
+./scripts/setup-rm2-appload.sh root@10.11.99.1
+```
+
+That writes `dist/appload-pr59-3.28-arm32.tar.gz` and uses it automatically on
+OS 3.28+. This is a beta path: PR #59 is unmerged and explicitly breaking for
+OS <=3.27.
+
 This downloads upstream arm32 release artifacts, installs them under
 `/home/root/xovi`, builds the qt-resource-rebuilder hashtab (required by
 AppLoad; runs the GUI briefly), and writes this rollback script:

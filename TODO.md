@@ -16,7 +16,7 @@ fatal runtime error: failed to initiate panic, error 9, aborting
 ```
 
 This is upstream, not a riddle bug:
-- rm-appload #62 — this exact error / root cause: https://github.com/asivery/rm-appload/issues/62
+- rm-appload #62 — duplicate PR with this exact error / root cause: https://github.com/asivery/rm-appload/pull/62
 - rm-appload #59 — the only 3.28 fix, an **unmerged beta** PR: https://github.com/asivery/rm-appload/pull/59
 - Vellum pins AppLoad to `remarkable-os >=3.26 <3.28`.
 
@@ -27,9 +27,11 @@ regardless of our bundle.
 
 - [ ] **Downgrade the tablet to OS 3.27.x** — AppLoad v0.5.3 works there as
       released. Lowest-risk path to a working diary today.
-- [ ] **Build `appload.so` from PR #59's `3.28` branch**
+- [x] **Build `appload.so` from PR #59's `3.28` branch**
       (`rmitchellscott/rm-appload@3.28`) — needs the xovi toolchain + reMarkable
-      SDK; beta quality; breaks on OS ≤3.27. No prebuilt asset exists.
+      SDK; beta quality; breaks on OS ≤3.27. Built locally using upstream's
+      `eeems/remarkable-toolchain:latest-rm1` Docker release path. A reproducible
+      script now exists: `riddle/scripts/build-rm2-appload-pr59.sh`.
 - [ ] **Wait** for a tagged AppLoad release after 3.28 goes GA.
 
 ## 🔬 Crash details (to start debugging)

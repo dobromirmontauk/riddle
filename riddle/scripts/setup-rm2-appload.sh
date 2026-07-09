@@ -13,6 +13,8 @@
 #   RM2_ASSUME_YES=1              Skip confirmation prompt.
 #   RM2_FORCE_XOVI_OVERWRITE=1    Replace existing /home/root/xovi after backup.
 #   RM2_ALLOW_UNKNOWN_MODEL=1     Skip the model guard.
+#   RM2_APPLOAD_328_TARBALL=dist/appload-pr59-3.28-arm32.tar.gz
+#                                  Use beta AppLoad build for OS 3.28+.
 set -euo pipefail
 
 RM2_SSH="${1:-${RM2_SSH:-root@10.11.99.1}}"
@@ -20,6 +22,8 @@ XOVI_TAG="${XOVI_TAG:-v19-23052026}"
 APPLOAD_TAG="${APPLOAD_TAG:-v0.5.3}"
 XOVI_URL="https://github.com/asivery/rm-xovi-extensions/releases/download/${XOVI_TAG}/xovi-arm32.tar.gz"
 APPLOAD_URL="https://github.com/asivery/rm-appload/releases/download/${APPLOAD_TAG}/appload-arm32.zip"
+APPLOAD_328_TARBALL="${RM2_APPLOAD_328_TARBALL:-dist/appload-pr59-3.28-arm32.tar.gz}"
+APPLOAD_KIND="release"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -103,31 +107,58 @@ case "$osver" in
     *)
         # 3.28+ (and anything newer) — unsupported by released AppLoad.
         APPLOAD_OS_SUPPORTED=0
-        cat >&2 <<EOF
+        if [ -f "$APPLOAD_328_TARBALL" ]; then
+            APPLOAD_KIND="pr59-3.28"
+            APPLOAD_OS_SUPPORTED=1
+            cat >&2 <<EOF
+
+WARNING: reMarkable OS $osver is not supported by released AppLoad.
+Using beta AppLoad artifact built from rm-appload PR #59:
+  $APPLOAD_328_TARBALL
+
+This is expected to break on OS <=3.27 and is beta quality.
+EOF
+        else
+            cat >&2 <<EOF
 
 WARNING: reMarkable OS $osver is NOT supported by any released AppLoad.
 AppLoad v0.5.3 crash-loops xochitl on 3.28+. xovi + the diary bundle will be
 installed, but xovi will NOT be auto-started (that is what crashes). Options:
-  - build appload.so from the 3.28 branch (rm-appload PR #59, beta), or
+  - run ./scripts/build-rm2-appload-pr59.sh and rerun this setup, or
   - downgrade to OS 3.27.x, or
   - wait for a tagged AppLoad release that supports your OS.
 Set RM2_ALLOW_UNSUPPORTED_OS=1 to start xovi anyway (may bootloop the UI;
 recover over SSH with the rollback script). See README-RM2.md.
 EOF
+        fi
         ;;
 esac
 
 confirm
 
 fetch "$XOVI_URL" "$WORK/xovi-arm32.tar.gz"
-fetch "$APPLOAD_URL" "$WORK/appload-arm32.zip"
+case "$APPLOAD_KIND" in
+    pr59-3.28)
+        cp "$APPLOAD_328_TARBALL" "$WORK/appload-arm32.tar.gz"
+        ;;
+    release)
+        fetch "$APPLOAD_URL" "$WORK/appload-arm32.zip"
+        ;;
+esac
 
 echo "Uploading release artifacts..."
 remote_put "$WORK/xovi-arm32.tar.gz" "$RM2_SSH:/tmp/xovi-arm32.tar.gz"
-remote_put "$WORK/appload-arm32.zip" "$RM2_SSH:/tmp/appload-arm32.zip"
+case "$APPLOAD_KIND" in
+    pr59-3.28)
+        remote_put "$WORK/appload-arm32.tar.gz" "$RM2_SSH:/tmp/appload-arm32.tar.gz"
+        ;;
+    release)
+        remote_put "$WORK/appload-arm32.zip" "$RM2_SSH:/tmp/appload-arm32.zip"
+        ;;
+esac
 
 echo "Installing xovi + AppLoad..."
-remote_sh "RM2_FORCE_XOVI_OVERWRITE='${RM2_FORCE_XOVI_OVERWRITE:-0}' bash -s" <<'REMOTE'
+remote_sh "RM2_FORCE_XOVI_OVERWRITE='${RM2_FORCE_XOVI_OVERWRITE:-0}' APPLOAD_KIND='$APPLOAD_KIND' bash -s" <<'REMOTE'
 set -euo pipefail
 
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -155,7 +186,14 @@ fi
 cd /tmp
 rm -rf appload-arm32-unz
 mkdir appload-arm32-unz
-unzip -oq appload-arm32.zip -d appload-arm32-unz || busybox unzip -o appload-arm32.zip -d appload-arm32-unz
+case "$APPLOAD_KIND" in
+    pr59-3.28)
+        tar -xzf appload-arm32.tar.gz -C appload-arm32-unz
+        ;;
+    release)
+        unzip -oq appload-arm32.zip -d appload-arm32-unz || busybox unzip -o appload-arm32.zip -d appload-arm32-unz
+        ;;
+esac
 cp -f appload-arm32-unz/appload.so /home/root/xovi/extensions.d/
 if [ -d appload-arm32-unz/shims ]; then
     cp -rf appload-arm32-unz/shims /home/root/xovi/exthome/appload/
@@ -163,7 +201,7 @@ fi
 if [ -d appload-arm32-unz/exthome ]; then
     cp -rf appload-arm32-unz/exthome/. /home/root/xovi/exthome/
 fi
-rm -rf /tmp/appload-arm32-unz /tmp/appload-arm32.zip /tmp/xovi-arm32.tar.gz
+rm -rf /tmp/appload-arm32-unz /tmp/appload-arm32.zip /tmp/appload-arm32.tar.gz /tmp/xovi-arm32.tar.gz
 
 cat >/home/root/riddle-rm2-appload-rollback.sh <<EOF
 #!/bin/sh
