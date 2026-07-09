@@ -32,6 +32,66 @@ regardless of our bundle.
       SDK; beta quality; breaks on OS ≤3.27. No prebuilt asset exists.
 - [ ] **Wait** for a tagged AppLoad release after 3.28 goes GA.
 
+## 🔬 Crash details (to start debugging)
+
+Environment observed:
+- Device: reMarkable 2, OS **3.28.0.157** (`/usr/share/remarkable/update.conf`;
+  `/etc/os-release` IMG_VERSION=3.28.0.157, base 5.8.197 "scarthgap").
+- xovi: `rm-xovi-extensions` **v19-23052026** (arm32), with `xovi.so`,
+  `qt-resource-rebuilder.so`, `xovi-message-broker.so` in `extensions.d/`.
+  `xovi.so` confirmed 32-bit ARM (not an arch mismatch).
+- AppLoad: **v0.5.3** (arm32), `appload.so` in `extensions.d/`.
+- hashtab built for this OS: 20183 entries (so qt-resource-rebuilder is fine).
+
+Reproduce / observe the crash directly (bypasses systemd + the SSH
+mount-namespace issue — runs xochitl in the foreground with the preload):
+
+```sh
+ssh root@10.11.99.1
+systemctl stop xochitl
+XOVI_ROOT=/home/root/xovi/services/xochitl.service/ \
+  LD_PRELOAD=/home/root/xovi/xovi.so \
+  QML_DISABLE_DISK_CACHE=1 \
+  /usr/bin/xochitl 2>&1 | head -n 40
+# restore the UI afterward:
+systemctl start xochitl
+```
+
+Observed output (trimmed):
+
+```
+[qmldiff]: Set system version to 3.28.0.157
+[qmldiff]: Iterating over directory .../exthome/qt-resource-rebuilder/
+[qmldiff]: Hashtab loaded! Cached 20183 entries
+[qmldiff]: Configured hashtab rules.
+called `Result::unwrap()` on an `Err` value: Couldn't resolve the hashed
+identifier 4073320026945606142 required by AppLoad hooks in main UI
+fatal runtime error: failed to initiate panic, error 9, aborting
+```
+
+Root cause / where to look:
+- xovi.so and qt-resource-rebuilder load fine; **only AppLoad's main-UI hook
+  fails**. So debugging is scoped to AppLoad's QML hook targets vs the 3.28 UI.
+- AppLoad's hook lives in `xovi/template/appload.qmd` (compiled into
+  `appload.so`). It targets a sidebar/navigator QML node that the 3.28 UI
+  refactor moved/removed, so the identifier hash `4073320026945606142` no longer
+  resolves. The hashtab is not the problem.
+- The fix is a single-file change to `appload.qmd` — see PR #59's diff
+  (`rmitchellscott/rm-appload@3.28`) for the updated hook target. Because the
+  `.qmd` is compiled into `appload.so`, a source rebuild of AppLoad is required
+  (no prebuilt 3.28 asset exists).
+- Same class of breakage recurred at prior UI refactors: rm-appload #40 (3.26),
+  #48/#49 (3.27).
+
+Recovery if the UI is ever wedged (SSH always works):
+
+```sh
+ssh root@10.11.99.1 '/home/root/riddle-rm2-appload-rollback.sh'   # full revert
+# or minimally clear any preload drop-in and restart:
+ssh root@10.11.99.1 'rm -rf /etc/systemd/system/xochitl.service.d/00-xovi.conf; \
+  systemctl daemon-reload; systemctl restart xochitl'
+```
+
 ## ✅ Done (committed to this branch)
 
 - Build + bundle the rM2 qtfb binary (`make build-rm2-qtfb` / `bundle-rm2-qtfb`).
